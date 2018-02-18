@@ -1,0 +1,6 @@
+Record=TopLevelDocument|FileName=1-FOB.SchDoc
+Record=SheetSymbol|SourceDocument=1-FOB.SchDoc|Designator=U_Btn and beeper|SchDesignator=U_Btn and beeper|FileName=5-Btn and beeper.SchDoc|SymbolType=Normal|RawFileName=5-Btn and beeper.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=1-FOB.SchDoc|Designator=U_Display|SchDesignator=U_Display|FileName=3-Display.SchDoc|SymbolType=Normal|RawFileName=3-Display.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=1-FOB.SchDoc|Designator=U_MCU|SchDesignator=U_MCU|FileName=2-MCU.SchDoc|SymbolType=Normal|RawFileName=2-MCU.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=1-FOB.SchDoc|Designator=U_Power|SchDesignator=U_Power|FileName=6-Power.SchDoc|SymbolType=Normal|RawFileName=6-Power.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 
+Record=SheetSymbol|SourceDocument=1-FOB.SchDoc|Designator=U_Radio|SchDesignator=U_Radio|FileName=5-Radio.SchDoc|SymbolType=Normal|RawFileName=5-Radio.SchDoc|DesignItemId= |SourceLibraryName= |ObjectKind=Sheet Symbol|RevisionGUID= |ItemGUID= |VaultGUID= 

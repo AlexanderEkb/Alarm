@@ -1,0 +1,65 @@
+Configuration	Keyfob
+STM32CubeMX 	4.22.1
+Date	11/27/2017
+MCU	STM32F051K8Ux
+
+
+
+PERIPHERALS	MODES	FUNCTIONS	PINS
+I2C1	I2C	I2C1_SCL	PB6
+I2C1	I2C	I2C1_SDA	PB7
+SPI1	Full-Duplex Master	SPI1_MISO	PA6
+SPI1	Full-Duplex Master	SPI1_MOSI	PA7
+SPI1	Full-Duplex Master	SPI1_SCK	PA5
+SYS	Serial_Wire	SYS_SWCLK	PA14
+SYS	Serial_Wire	SYS_SWDIO	PA13
+SYS	SysTick	SYS_VS_Systick	VP_SYS_VS_Systick
+
+
+
+Pin Nb	PINs	FUNCTIONs	LABELs
+6	PA0	GPIO_Input	J_Up
+7	PA1	GPIO_Input	J_Left
+8	PA2	GPIO_Input	J_Down
+9	PA3	GPIO_Input	J_Right
+10	PA4	GPIO_EXTI4	
+11	PA5	SPI1_SCK	
+12	PA6	SPI1_MISO	
+13	PA7	SPI1_MOSI	
+14	PB0	GPIO_Output	TRX_nCS
+15	PB1	GPIO_Output	TRX_CE
+18	PA8	GPIO_Output	BEEP_N
+19	PA9	GPIO_Output	BEEP_P
+20	PA10	GPIO_Input	J_Push
+23	PA13	SYS_SWDIO	
+24	PA14	SYS_SWCLK	
+29	PB6	I2C1_SCL	
+30	PB7	I2C1_SDA	
+
+
+
+SOFTWARE PROJECT
+
+Project Settings : 
+Project Name : Keyfob
+Project Folder : D:\Work\Alarm\FOB\SW\FOB_3\Keyfob
+Toolchain / IDE : EWARM
+Firmware Package Name and Version : STM32Cube FW_F0 V1.9.0
+
+
+Code Generation Settings : 
+STM32Cube Firmware Library Package : Copy all used libraries into the project folder
+Generate peripheral initialization as a pair of '.c/.h' files per peripheral : No
+Backup previously generated files when re-generating : No
+Delete previously generated files when not re-generated : Yes
+Set all free pins as analog (to optimize the power consumption) : No
+
+
+Toolchains Settings : 
+Compiler Optimizations : Balanced Size/Speed
+
+
+
+
+
+

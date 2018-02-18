@@ -1,0 +1,9 @@
+Project: EWARM
+Converter: IARProjectParser
+Date: 20180201
+
+Project needs GCC compatible startup code and linker script
+Debug: FPU set to default FPU for device: None.
+Debug: FPU set to none.
+Release: FPU set to default FPU for device: None.
+Release: FPU set to none.

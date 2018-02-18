@@ -1,0 +1,14 @@
++CMT: ,22
+07 SC Length
+91 				0b10010001	International, ISDN
+9740430900F3	+7(904)349-00-03-F	SMSC Number
+04				PDU Type: SMS-DELIVER + No More Message to Send
+0B				11 digits in number
+91 				International, ISDN
+9705553612F4	+7(950)556-32-14-F	Origin number
+00				Protocol Identifier
+00				Data encoding scheme
+61907122014521	Timestamp
+03				Length
+41F21C			"Ads"
+buf	Error (col 1): Unknown or ambiguous symbol. buf			

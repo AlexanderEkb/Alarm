@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<list key="org.eclipse.ui.internal.wizards.datatransfer.SmartImportRootWizardPage.knownSources">
+		<item value="D:\Work\Alarm\FOB\SW\FOB_3\Keyfob\EWARM"/>
+	</list>
+	<section name="ExternalProjectImportWizard">
+	</section>
+	<section name="org.eclipse.ui.internal.ide.dialogs.ProjectContentsLocationArea">
+		<item value="D:\Work\Alarm\FOB\SW\FOB_3\Keyfob\Atollic" key="OUTSIDE_LOCATION"/>
+	</section>
+</section>
