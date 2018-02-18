@@ -13,6 +13,8 @@
 #define DEFAULT_STACK_DEPTH     (configMINIMAL_STACK_SIZE * 2)
 
 #define TIMEOUT_PAUSE_I         (1000)
+#define TIMEOUT_PAUSE_II        (1000)
+#define TIMEOUT_PREHEAT_PAUSE   (500)
 #define TIMEOUT_WHEN_PREHEAT    (60000)
 #define TIMEOUT_WHEN_CRANKING   (500)
 #define TIMEOUT_WHEN_RUNNING    (1000)
@@ -63,10 +65,9 @@ void Engine_Init() {
 
     1. Command received;
     2. Check if the engine is already running. If so, then break.
+    4. Check for minimal voltage - if it is less than allowed, then break.
     2. Partially deactivate alarm (shock, ign, lock);
     3. Turn on ignition;
-    4. Check for minimal voltage - if it is less than allowed -
-       turn off ignition, re-arm the alarm  and go to Failure(MIN_VOLT);
     5. Check for engine temp and calculate (Repetitions);
     6. Play appropriate pattern (?)
     7. Wait for plugs are turned on for 1 sec. If they are not turned on - go to 12.
@@ -142,10 +143,6 @@ void Engine_Task(void *p) {
     }
 }
 
-FunctionalState Engine_GetState() {
-    return engine_state == ENGINE_STATE_STOPPED?DISABLE:ENABLE;
-}
-
 static BaseType_t GetTimeout() {
     uint32_t timeout;
     
@@ -163,10 +160,14 @@ static BaseType_t GetTimeout() {
         timeout = TIMEOUT_WHEN_PREHEAT;
         break;
     case ENGINE_STATE_PREHEAT_PAUSE:
+        timeout = TIMEOUT_PREHEAT_PAUSE;
+        break;
     case ENGINE_STATE_CRANKING:
         timeout = TIMEOUT_WHEN_CRANKING;
         break;
     case ENGINE_STATE_PAUSE_II:
+        timeout = TIMEOUT_PAUSE_II;
+        break;
     case ENGINE_STATE_RUNNING:
         timeout = TIMEOUT_WHEN_RUNNING;
         break;
@@ -187,7 +188,6 @@ static ErrorStatus Engine_Start(EngineMessage_t *msg) {
 
     engine_state = ENGINE_STATE_ALARM_WAIT;
     return SUCCESS;
-    //return Alarm_SendMsg(ALARM_CMD_PARTIALLY_DISARM, 0, 0)==pdTRUE?SUCCESS:ERROR;
 }
 
 static void OnStartAllowed() {
@@ -269,6 +269,10 @@ static void CheckIfRunning() {
         vTaskDelay(10);
         engine_state = ENGINE_STATE_RUNNING;
     }
+}
+
+FunctionalState Engine_GetState() {
+    return engine_state == ENGINE_STATE_STOPPED?DISABLE:ENABLE;
 }
 
 static ErrorStatus Engine_Stop(EngineMessage_t *msg) {
