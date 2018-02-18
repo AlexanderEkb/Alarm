@@ -19,7 +19,8 @@
 #define TIMEOUT_WHEN_CRANKING   (500)
 #define TIMEOUT_WHEN_RUNNING    (1000)
 
-#define MAX_CRANKING_TIME       (10000)
+#define MIN_OPERATING_VOLTAGE   (10000) /* mV */
+#define MAX_CRANKING_TIME       (10000) /* mS */
 
 typedef struct {
     Action_t event;
@@ -41,14 +42,17 @@ typedef enum {
 static QueueHandle_t queue;
 static EngineState_t engine_state;
 
-static ErrorStatus Engine_Start(EngineMessage_t *msg);
-static ErrorStatus Engine_Stop(EngineMessage_t *msg);
+static void OnStartCmd(EngineMessage_t *msg);
 static void OnStartAllowed();
+static void OnWarmUp();
+static void OnStartCranking();
 static BaseType_t GetTimeout();
 static void OnInStateChanged();
 static void CheckIfRunning();
+static void OnTimeout();
+static void OnStopCmd(EngineMessage_t *msg);
+
 static uint32_t repetitions;
-static uint32_t glow_counter;
 static uint32_t cranking_start;
 static uint32_t _voltage;
 static uint32_t _rpm;
@@ -65,18 +69,19 @@ void Engine_Init() {
 
     1. Command received;
     2. Check if the engine is already running. If so, then break.
-    4. Check for minimal voltage - if it is less than allowed, then break.
-    2. Partially deactivate alarm (shock, ign, lock);
-    3. Turn on ignition;
-    5. Check for engine temp and calculate (Repetitions);
+    3. Check for minimal voltage - if it is less than allowed, then break.
+    4. Check for engine temp and calculate (Repetitions);
+    5. Partially deactivate alarm (shock, ign, lock);
     6. Play appropriate pattern (?)
-    7. Wait for plugs are turned on for 1 sec. If they are not turned on - go to 12.
-    8. Wait for plugs are turned off;
-    9. Wait for 1 sec.
+    7. Turn on ignition;
+    8. Wait for plugs are turned on for 1 sec. If they are not turned on - 
+       shut down and report about failure;
+    9. Wait for plugs are turned off for 1 minute. If they are not turned off -
+       shut down and report about failure;
     10. Turn off ignition;
     11. Wait for 1 sec.
     12. Turn it on again;
-    13. Repeat step 8-12 for (Repetitions) times;
+    13. Repeat step 7-12 for (Repetitions) times;
     14. Turn on starter;
     15. Wait for RPM are above the programmed value, check for timeout;
     16. If everything is OK - go to 21;
@@ -107,28 +112,23 @@ void Engine_Task(void *p) {
         if(xQueueReceive(queue, &msg, timeout) == pdTRUE) {
             switch(msg.event) {
             case ACTION_START:
-                Engine_Start(&msg);
-                // the next step is ENGINE_START_ALLOWED
+                OnStartCmd(&msg);
                 break;
             case ENGINE_START_ALLOWED:
                 OnStartAllowed();
-                // the next step is ENGINE_STATE_PAUSE_I (just pause)
                 break;
             case ENGINE_IN_STATE_CHANGED:
                 OnInStateChanged(&msg);
                 break;
             case ACTION_STOP:
-                Engine_Stop(&msg);
+                OnStopCmd(&msg);
                 break;
             }
         } else {
             switch(engine_state) {
-            case ENGINE_STATE_PAUSE_I:
-                engine_state = ENGINE_STATE_PREHEAT; // the next engine_state is ENGINE_STATE_PREHEAT (...)
-                break;
-            case ENGINE_STATE_PREHEAT:
-                Inout_Clear(OUT_IGN);         // Glow plugs are remaining on for more than one minute.
-                engine_state = ENGINE_STATE_STOPPED;
+            case ENGINE_STATE_PAUSE_II:
+                // 12. Turn them on again;
+                OnWarmUp();
                 break;
             case ENGINE_STATE_CRANKING:
                 CheckIfRunning();
@@ -138,6 +138,8 @@ void Engine_Task(void *p) {
                 _voltage = Measurement_GetVoltage();
                 _rpm = Measurement_GetRPM();
                 break;
+            default:
+                OnTimeout();
             }
         }
     }
@@ -176,45 +178,34 @@ static BaseType_t GetTimeout() {
     return timeout;
 }
 
-static ErrorStatus Engine_Start(EngineMessage_t *msg) {
+static void OnStartCmd(EngineMessage_t *msg) {
+    uint32_t voltage;
 //        I. ENGINE START
 //
 //    1. Command received;
 //    2. Check if the engine is already running. If so, then break.
     if(engine_state != ENGINE_STATE_STOPPED)
-        return SUCCESS;
-//    2. Partially deactivate alarm (shock, ign, lock);
-    Alarm_SendMsg(ALARM_ENGINE_START_REQ, 0, 0);
-
-    engine_state = ENGINE_STATE_ALARM_WAIT;
-    return SUCCESS;
-}
-
-static void OnStartAllowed() {
-    uint32_t voltage;
-//    3. Turn on ignition;
-    Inout_Set(OUT_IGN);
-    vTaskDelay(50);
-//    4. Check for minimal voltage - if it is less than allowed -
-//       turn off ignition, re-arm the alarm  and go to Failure(MIN_VOLT);
+        return;
+//    4. Check for minimal voltage - if it is less than allowed then break.
     voltage = Measurement_GetVoltage();
-    if(voltage < 10000) {
-        engine_state = ENGINE_STATE_STOPPED;
-        Inout_Clear(OUT_IGN);
-        Alarm_SendMsg(ALARM_ENGINE_STOPPED, 0, 0);
+    if(voltage < MIN_OPERATING_VOLTAGE) {
+        // TODO: Notify the user about low voltage
         return;
     }
 //    5. Check for engine temp and calculate (Repetitions);
     repetitions = 3;
-//    6. Play appropriate pattern (?)
-//    7. Wait for plugs are turned on for 1 sec. If they are not turned on - go to 12.
-    engine_state = ENGINE_STATE_PAUSE_I;
-//    8. Wait for plugs are turned off;
+//    2. Partially deactivate alarm (shock, ign, lock);
+    Alarm_SendMsg(ALARM_ENGINE_START_REQ, 0, 0);
+
+    engine_state = ENGINE_STATE_ALARM_WAIT;
+    return;
 }
-//    9. Wait for 1 sec.
-//    10. Turn off ignition;
-//    11. Wait for 1 sec.
-//    12. Turn it on again;
+
+static void OnStartAllowed() {
+//    6. Play appropriate pattern (?)
+    // TODO: Do this.
+    OnWarmUp();
+}
 //    13. Repeat step 8-12 for (Repetitions) times;
 //    14. Turn on starter;
 //    15. Wait for RPM are above the programmed value, check for timeout;
@@ -227,6 +218,35 @@ static void OnStartAllowed() {
 //    21. Send OK to every control device;
 //    22. Keep engine running until some reason to stop it;
 
+static void OnWarmUp() {
+    // 3. Turn on ignition;
+    Inout_Set(OUT_IGN);
+    // 7. Wait for plugs are turned on for 1 sec. If they are not turned on - go to 12.
+    engine_state = ENGINE_STATE_PAUSE_I;
+    // 8. Wait for plugs are turned off;
+}
+
+static void OnGlowPlugsTurnedOn() {
+    engine_state = ENGINE_STATE_PREHEAT;
+}
+
+static void OnGlowPlugsTurnedOff() {
+    repetitions--;
+    if(repetitions) {
+        // 10. Turn off ignition;
+        Inout_Clear(OUT_IGN);
+        // 11. Wait for 1 sec.
+        engine_state = ENGINE_STATE_PAUSE_II;
+    } else
+        OnStartCranking();
+}
+
+static void OnStartCranking() {
+    cranking_start = xTaskGetTickCount();
+    Inout_Set(OUT_START);
+    engine_state = ENGINE_STATE_CRANKING;
+}
+
 static void OnInStateChanged(EngineMessage_t *msg) {
     uint32_t changes = msg->a1 ^ msg->a2;
     uint32_t now = msg->a1;
@@ -234,14 +254,11 @@ static void OnInStateChanged(EngineMessage_t *msg) {
     switch(engine_state) {
     case ENGINE_STATE_PAUSE_I:
         if((changes == IN_GLOW) && (now & IN_GLOW))
-            engine_state = ENGINE_STATE_PREHEAT;
+            OnGlowPlugsTurnedOn();
         break;
     case ENGINE_STATE_PREHEAT:
-        if((changes == IN_GLOW) && !(now & IN_GLOW)) {
-            cranking_start = xTaskGetTickCount();
-            Inout_Set(OUT_START);
-            engine_state = ENGINE_STATE_CRANKING;
-        }
+        if((changes == IN_GLOW) && !(now & IN_GLOW))
+            OnGlowPlugsTurnedOff();
         break;
     case ENGINE_STATE_PREHEAT_PAUSE:
     case ENGINE_STATE_CRANKING:
@@ -271,12 +288,17 @@ static void CheckIfRunning() {
     }
 }
 
+static void OnTimeout() {
+    Inout_Clear(OUT_START | OUT_IGN);
+    // TODO: Notify the user about timeout at the certain state.
+    engine_state = ENGINE_STATE_STOPPED;
+}
 FunctionalState Engine_GetState() {
     return engine_state == ENGINE_STATE_STOPPED?DISABLE:ENABLE;
 }
 
-static ErrorStatus Engine_Stop(EngineMessage_t *msg) {
+static void OnStopCmd(EngineMessage_t *msg) {
     Inout_Clear(OUT_IGN);
-    engine_state = ENGINE_STOPPED;
-    return SUCCESS;
+    engine_state = ENGINE_STATE_STOPPED;
+    return;
 }

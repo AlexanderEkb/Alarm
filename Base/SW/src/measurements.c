@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "stm32f1xx.h"
 #include "FreeRTOS.h"
+#include "task.h"
 #include "measurements.h"
 
 #define VREF                (3.3)
@@ -12,6 +13,8 @@
 #define TEETH_NUM           (60)
 #define PULLEY_RATIO        (2)
 #define RPM_ARR_VALUE       (10000)
+
+#define DEFAULT_STACK_DEPTH     (configMINIMAL_STACK_SIZE * 2)
 
 /*
 100...5000 RPM
@@ -43,6 +46,8 @@ static const TempRecalc_TypeDef Table[TEMP_TABLE_LENGTH] = {
 static ADC_Data_TypeDef ADC_Data[BUFFER_LENGTH];
 static uint32_t RPM_Data[TEETH_NUM];
 static uint32_t rpmPtr;
+
+static void _Task(void *p);
 
 void TIM2_IRQHandler() {
     ADC1->SR &= ~ADC_SR_EOC;
@@ -167,6 +172,16 @@ void Measurement_Init() {
     NVIC->IP[TIM3_IRQn] = (configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY - 1) << 4;
 
     AFIO->MAPR |= AFIO_MAPR_TIM3_REMAP_1;
+
+    xTaskHandle foo;
+
+    xTaskCreate(&_Task, "MEAS", DEFAULT_STACK_DEPTH, NULL, 5, &foo);
+}
+
+static void _Task(void *p) {
+    while(1) {
+        portYIELD();
+    }
 }
 
 uint32_t Measurement_GetVoltage() {
