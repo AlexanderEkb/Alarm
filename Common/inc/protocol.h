@@ -84,15 +84,18 @@ typedef enum {
     ALARM_CMD_SHUT_UP =             0x05,
     ALARM_ENGINE_START_REQ =        0x06,
     ALARM_ENGINE_STOPPED =          0x07,
+    ALARM_IN_STATE_CHANGED =        0x08,
 
     ENGINE_START_ALLOWED =          0x41,
     ACTION_START =                  0x43,
     ACTION_STOP =                   0x44,
     ACTION_ENABLE_TEMP_START =      0x45,
     ACTION_ENABLE_TIME_START =      0x46,
-
     ENGINE_IN_STATE_CHANGED =       0x47,
-    ALARM_IN_STATE_CHANGED =        0x48,
+    ENGINE_VOLTAGE_UP =             0x48,
+    ENGINE_VOLTAGE_DOWN =           0x49,
+    ENGINE_RPM_UP =                 0x4A,
+    ENGINE_RPM_DOWN =               0x4B,
 
 } Action_t;
 

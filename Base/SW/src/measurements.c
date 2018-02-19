@@ -2,7 +2,9 @@
 #include "stm32f1xx.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "engine.h"
 #include "measurements.h"
+#include "protocol.h"
 
 #define VREF                (3.3)
 #define BUFFER_LENGTH       (16)
@@ -14,13 +16,16 @@
 #define PULLEY_RATIO        (2)
 #define RPM_ARR_VALUE       (10000)
 
-#define DEFAULT_STACK_DEPTH     (configMINIMAL_STACK_SIZE * 2)
+#define DEFAULT_STACK_DEPTH (configMINIMAL_STACK_SIZE * 2)
+#define QUEUE_SIZE          (2)
+#define TASK_PERIOD         (200)
 
-/*
-100...5000 RPM
-85 mS ... 100 uS
-Tick = 10uS
-*/
+#define _VOLTAGE_LO_THRESHOLD   (8000)
+#define _VOLTAGE_HI_THRESHOLD   (12000)
+#define _RPM_LO_THRESHOLD       (200)
+#define _RPM_HI_THRESHOLD       (600)
+#define _RPM_TIME_MUL           (5)
+#define _VOLTAGE_TIME_MUL       (5)
 
 typedef struct {
     int32_t temp;
@@ -46,8 +51,33 @@ static const TempRecalc_TypeDef Table[TEMP_TABLE_LENGTH] = {
 static ADC_Data_TypeDef ADC_Data[BUFFER_LENGTH];
 static uint32_t RPM_Data[TEETH_NUM];
 static uint32_t rpmPtr;
+static uint32_t voltage;
+static int32_t temp;
+static uint32_t rpm;
+static struct {
+    uint32_t voltage_lo;
+    uint32_t voltage_hi;
+    uint32_t rpm_lo;
+    uint32_t rpm_hi;
+    uint32_t voltage_t;
+    uint32_t rpm_t;
+    uint32_t voltage_count;
+    uint32_t rpm_count;
+} thresholds = {
+    .voltage_lo = _VOLTAGE_LO_THRESHOLD,
+    .voltage_hi = _VOLTAGE_HI_THRESHOLD,
+    .rpm_lo = _RPM_LO_THRESHOLD,
+    .rpm_hi = _RPM_HI_THRESHOLD,
+    .voltage_t = _VOLTAGE_TIME_MUL,
+    .rpm_t = _RPM_TIME_MUL,
+    .voltage_count = (_VOLTAGE_TIME_MUL >> 1),
+    .rpm_count = (_RPM_TIME_MUL >> 1)
+};
 
 static void _Task(void *p);
+static uint32_t CalculateVoltage();
+static int32_t CalculateTemp();
+static uint32_t CalculateRPM();
 
 void TIM2_IRQHandler() {
     ADC1->SR &= ~ADC_SR_EOC;
@@ -160,6 +190,13 @@ void Measurement_Init() {
     AFIO->MAPR |= AFIO_MAPR_SWJ_CFG_1;
 
     /* TIM3 Ch1 */
+
+    /*
+    100...5000 RPM
+    85 mS ... 100 uS
+    Tick = 10uS
+    */
+
     TIM3->CR1 = TIM_CR1_ARPE;
     TIM3->CR2 = 0x00;
     TIM3->DIER = TIM_DIER_CC1IE | TIM_DIER_UIE;
@@ -178,13 +215,52 @@ void Measurement_Init() {
     xTaskCreate(&_Task, "MEAS", DEFAULT_STACK_DEPTH, NULL, 5, &foo);
 }
 
+uint32_t Measurement_GetVoltage() {
+    return voltage;
+}
+
+int32_t Measurement_GetTemp() {
+    return temp;
+}
+
+uint32_t Measurement_GetRPM() {
+    return rpm;
+}
+
 static void _Task(void *p) {
     while(1) {
-        portYIELD();
+        vTaskDelay(TASK_PERIOD);
+        voltage = CalculateVoltage();
+        temp = CalculateTemp();
+        rpm = CalculateRPM();
+        
+        if((voltage >= thresholds.voltage_hi) && 
+           (thresholds.voltage_count < thresholds.voltage_t)){
+            thresholds.voltage_count++;
+            if(thresholds.voltage_count == thresholds.voltage_t)
+                Engine_SendMsg(ENGINE_VOLTAGE_UP, 0, 0);
+        } else if((voltage <= thresholds.voltage_lo) && 
+           (thresholds.voltage_count > 0)){
+            thresholds.voltage_count--;
+            if(thresholds.voltage_count == 0)
+                Engine_SendMsg(ENGINE_VOLTAGE_DOWN, 0, 0);
+        }
+
+        if((rpm >= thresholds.rpm_hi) && 
+           (thresholds.rpm_count < thresholds.rpm_t)){
+            thresholds.rpm_count++;
+            if(thresholds.rpm_count == thresholds.rpm_t)
+                Engine_SendMsg(ENGINE_RPM_UP, 0, 0);
+        } else if((rpm <= thresholds.rpm_lo) && 
+           (thresholds.rpm_count > 0)){
+            thresholds.rpm_count--;
+            if(thresholds.rpm_count == 0)
+                Engine_SendMsg(ENGINE_RPM_DOWN, 0, 0);
+        }
     }
 }
 
-uint32_t Measurement_GetVoltage() {
+static uint32_t CalculateVoltage() {
     uint32_t result = 0;
     uint32_t i;
     float u;
@@ -198,7 +274,7 @@ uint32_t Measurement_GetVoltage() {
     return result;
 }
 
-int32_t Measurement_GetTemp() {
+static int32_t CalculateTemp() {
     uint32_t result = 0;
     float u, r, c;
     uint32_t i, T;
@@ -222,7 +298,7 @@ int32_t Measurement_GetTemp() {
     return T;
 }
 
-uint32_t Measurement_GetRPM() {
+static uint32_t CalculateRPM() {
     uint32_t i;
     uint32_t Period = 0;
     uint32_t RPM;
