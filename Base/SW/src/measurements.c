@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <math.h>
 #include "stm32f1xx.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -7,7 +8,7 @@
 #include "protocol.h"
 
 #define VREF                (3.3)
-#define BUFFER_LENGTH       (16)
+#define BUFFER_LENGTH       (128)
 #define TEMP_TABLE_LENGTH   (37)
 #define MIN_TEMP            (-55)
 #define MAX_TEMP            (125)
@@ -21,7 +22,7 @@
 #define TASK_PERIOD         (200)
 
 #define _VOLTAGE_LO_THRESHOLD   (8000)
-#define _VOLTAGE_HI_THRESHOLD   (12000)
+#define _VOLTAGE_HI_THRESHOLD   (13500)
 #define _RPM_LO_THRESHOLD       (200)
 #define _RPM_HI_THRESHOLD       (600)
 #define _RPM_TIME_MUL           (5)
@@ -74,7 +75,6 @@ static struct {
     .rpm_count = (_RPM_TIME_MUL >> 1)
 };
 
-static void _Task(void *p);
 static uint32_t CalculateVoltage();
 static int32_t CalculateTemp();
 static uint32_t CalculateRPM();
@@ -209,10 +209,6 @@ void Measurement_Init() {
     NVIC->IP[TIM3_IRQn] = (configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY - 1) << 4;
 
     AFIO->MAPR |= AFIO_MAPR_TIM3_REMAP_1;
-
-    xTaskHandle foo;
-
-    xTaskCreate(&_Task, "MEAS", DEFAULT_STACK_DEPTH, NULL, 5, &foo);
 }
 
 uint32_t Measurement_GetVoltage() {
@@ -227,7 +223,7 @@ uint32_t Measurement_GetRPM() {
     return rpm;
 }
 
-static void _Task(void *p) {
+void Measurement_Task(void *p) {
     while(1) {
         vTaskDelay(TASK_PERIOD);
         voltage = CalculateVoltage();
@@ -261,15 +257,20 @@ static void _Task(void *p) {
 }
 
 static uint32_t CalculateVoltage() {
-    uint32_t result = 0;
+    uint64_t result = 0;
     uint32_t i;
+    uint32_t sample;
     float u;
 
-    for(i=0;i<BUFFER_LENGTH;i++)
-        result += ADC_Data[i].Voltage;
-
+    for(i=0;i<BUFFER_LENGTH;i++) {
+        sample = ADC_Data[i].Voltage;
+        result += sample * sample;
+    }
+    
     result /= BUFFER_LENGTH;
-    u = (result * VREF) / 0x0fff;
+    u = (float)result;
+    u = sqrt(u);
+    u = (u * VREF) / 0x0fff;
     result = (int)(u * 4900.0);
     return result;
 }

@@ -35,11 +35,8 @@ static ErrorStatus OnEngineStop(AlarmMessage_t *msg);
 static ErrorStatus OnInStateChanged(AlarmMessage_t *msg);
 
 void Alarm_Init() {
-    xTaskHandle foo;
-
     state = STATE_DISARMED;
     queue = xQueueCreate(QUEUE_LENGTH, sizeof(AlarmMessage_t));
-    xTaskCreate(&Alarm_Task, "ALARM", DEFAULT_STACK_DEPTH, NULL, 5, &foo);
 }
 
 BaseType_t Alarm_SendMsg(Action_t event, uint32_t a1, uint32_t a2) {

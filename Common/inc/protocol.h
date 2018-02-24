@@ -19,6 +19,8 @@
 
 #endif
 
+#define PAYLOAD_LENGTH  (16)
+#define ADDR_LEN        0x05
 
 typedef enum {
     STATE_PRE_ARMED = 1,
@@ -99,12 +101,28 @@ typedef enum {
 
 } Action_t;
 
+typedef enum {
+    STATE_STOPPED                   = 0,
+    STATE_ALARM_WAIT                = 1,
+    STATE_PRE_PREHEAT               = 2,
+    STATE_PREHEAT                   = 3,
+    STATE_PREHEAT_PAUSE             = 5,
+    STATE_CRANKING                  = 6,
+    STATE_PAUSE_BETWEEN_PREHEATS    = 7,
+    STATE_PAUSE_BETWEEN_ATTEMPTS    = 8,
+    STATE_RUNNING                   = 9
+}EngineState_t;
+
 typedef PACKED struct {
-    uint16_t Status;
-    uint16_t Temp;
-    uint16_t RPM;
-    uint8_t PanicReason;
-    uint8_t _Reserved[9];
+    uint8_t state;
+    uint8_t temp;
+    uint8_t rpm;
+    uint8_t _reserved[13];
 } DefaultResponse_t;
+
+typedef PACKED struct {
+    uint8_t id;
+    uint8_t code;
+} Datagram_t;
 
 #endif /* PROTOCOL_H */

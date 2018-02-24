@@ -18,7 +18,7 @@
 #define LED_PORT                GPIOA
 #define LED_PIN                 (1 << 8)
 
-#define POLL_PERIOD             (50)
+#define POLL_PERIOD             (20)
 
 #define SET_CS                  {CS_PORT->BSRR = CS_PIN; }
 #define RESET_CS                {CS_PORT->BRR = CS_PIN; }
@@ -170,7 +170,11 @@ void Inout_Task(void *p) {
 
         // translate raw input into something useful...
         inputs = (~raw_inputs ^ STRAIGHT_INPUTS_MASK) & USED_INPUTS_MASK;
-
+        // Clear GLOW bit if ignition is turned off, due to lack of 
+        // dashboard power
+        if(!(inputs & IN_IGN))
+            inputs &= ~IN_GLOW;
+        
         if(inputs ^ prev_inputs) {
             Engine_SendMsg(ENGINE_IN_STATE_CHANGED, inputs, prev_inputs);
             Alarm_SendMsg(ALARM_IN_STATE_CHANGED, inputs, prev_inputs);

@@ -12,8 +12,6 @@
 
 #define PORT            GPIOA
 #define STACK_DEPTH     (configMINIMAL_STACK_SIZE)
-#define ADDR_LEN        0x05
-#define PAYLOAD_LENGTH  (16)
 
 typedef __packed struct {
     uint8_t Data[PAYLOAD_LENGTH];

@@ -40,11 +40,12 @@ int main()
     Modem_Init();
     Measurement_Init();
 
-    xTaskCreate(&Inout_Task, "INOUT", DEFAULT_STACK_DEPTH, NULL, 5, &foo);
-    xTaskCreate(&Alarm_Task, "ALARM", DEFAULT_STACK_DEPTH, NULL, 4, &foo);
-    xTaskCreate(&Engine_Task, "ENGINE", DEFAULT_STACK_DEPTH, NULL, 3, &foo);
     xTaskCreate(&Radio_Task, "RADIO", DEFAULT_STACK_DEPTH / 2, NULL, 5, &foo);
-    //xTaskCreate(&Modem_Task, "MODEM", DEFAULT_STACK_DEPTH / 2, NULL, 5, &foo);
+    xTaskCreate(&Inout_Task, "INOUT", DEFAULT_STACK_DEPTH, NULL, 4, &foo);
+    xTaskCreate(&Alarm_Task, "ALARM", DEFAULT_STACK_DEPTH, NULL, 3, &foo);
+    xTaskCreate(&Engine_Task, "ENGINE", DEFAULT_STACK_DEPTH, NULL, 2, &foo);
+    xTaskCreate(&Modem_Task, "MODEM", DEFAULT_STACK_DEPTH / 2, NULL, 2, &foo);
+    xTaskCreate(&Measurement_Task, "MEASURE", DEFAULT_STACK_DEPTH, NULL, 1, &foo);
 
     vTaskStartScheduler();
 

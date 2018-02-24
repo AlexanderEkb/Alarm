@@ -6,38 +6,30 @@
 #include "alarm.h"
 #include "inout.h"
 #include "measurements.h"
+#include "protocol.h"
 
 #define QUEUE_LENGTH    (16)
 #define DEFAULT_TIMEOUT (10)
 
 #define DEFAULT_STACK_DEPTH     (configMINIMAL_STACK_SIZE * 2)
 
-#define TIMEOUT_PAUSE_I         (1000)
-#define TIMEOUT_PAUSE_II        (1000)
-#define TIMEOUT_PREHEAT_PAUSE   (500)
-#define TIMEOUT_WHEN_PREHEAT    (60000)
-#define TIMEOUT_WHEN_CRANKING   (500)
-#define TIMEOUT_WHEN_RUNNING    (1000)
+#define TIMEOUT_PRE_PREHEAT         (1000)
+#define PAUSE_BETWEEN_PREHEATS      (1000)
+#define TIMEOUT_PREHEAT_PAUSE       (500)
+#define TIMEOUT_WHEN_PREHEAT        (60000)
+#define MAX_CRANKING_TIME           (10000) /* mS */
+#define TIMEOUT_BETWEEN_ATTEMPTS    (10000)
+#define DEFAULT_PERIOD              (1000)
+#define MAX_ATTEMPTS_COUNT          (3)
+#define PREHEAT_DURATION_THRESHOLD  (500)
 
-#define MIN_OPERATING_VOLTAGE   (10000) /* mV */
-#define MAX_CRANKING_TIME       (10000) /* mS */
+#define MIN_OPERATING_VOLTAGE       (10000) /* mV */
 
 typedef struct {
     Action_t event;
     uint32_t a1;
     uint32_t a2;
 } EngineMessage_t;
-
-typedef enum {
-    ENGINE_STATE_STOPPED,
-    ENGINE_STATE_ALARM_WAIT,
-    ENGINE_STATE_PAUSE_I,
-    ENGINE_STATE_PREHEAT,
-    ENGINE_STATE_PREHEAT_PAUSE,
-    ENGINE_STATE_CRANKING,
-    ENGINE_STATE_PAUSE_II,
-    ENGINE_STATE_RUNNING
-}EngineState_t;
 
 static QueueHandle_t queue;
 static EngineState_t engine_state;
@@ -46,22 +38,22 @@ static void OnStartCmd(EngineMessage_t *msg);
 static void OnStartAllowed();
 static void OnWarmUp();
 static void OnStartCranking();
+static void OnEngineStarted();
 static BaseType_t GetTimeout();
 static void OnInStateChanged();
-static void CheckIfRunning();
+static uint32_t GlowPlugsAreOn(EngineMessage_t *msg);
+static uint32_t GlowPlugsAreOff(EngineMessage_t *msg);
+static void OnCrankingTimeout();
 static void OnTimeout();
 static void OnStopCmd(EngineMessage_t *msg);
 
 static uint32_t repetitions;
-static uint32_t cranking_start;
-static uint32_t _voltage;
-static uint32_t _rpm;
-void Engine_Init() {
-    xTaskHandle foo;
+static uint32_t preheat_start;
+static uint32_t attempts;
 
+void Engine_Init() {
     queue = xQueueCreate(QUEUE_LENGTH, sizeof(EngineMessage_t));
-    engine_state = ENGINE_STATE_STOPPED;
-    xTaskCreate(&Engine_Task, "ENGINE", DEFAULT_STACK_DEPTH, NULL, 5, &foo);
+    engine_state = STATE_STOPPED;
 }
 
 /*
@@ -123,20 +115,22 @@ void Engine_Task(void *p) {
             case ACTION_STOP:
                 OnStopCmd(&msg);
                 break;
+            case ENGINE_RPM_UP:
+                OnEngineStarted();
+                break;
             }
         } else {
             switch(engine_state) {
-            case ENGINE_STATE_PAUSE_II:
+            case STATE_PAUSE_BETWEEN_PREHEATS:
                 // 12. Turn them on again;
                 OnWarmUp();
                 break;
-            case ENGINE_STATE_CRANKING:
-                CheckIfRunning();
+            case STATE_CRANKING:
+                OnCrankingTimeout();
                 break;
-            case ENGINE_STATE_STOPPED:
-            case ENGINE_STATE_RUNNING:
-                _voltage = Measurement_GetVoltage();
-                _rpm = Measurement_GetRPM();
+            case STATE_PAUSE_BETWEEN_ATTEMPTS:
+                repetitions = 3;
+                OnWarmUp();
                 break;
             default:
                 OnTimeout();
@@ -149,30 +143,29 @@ static BaseType_t GetTimeout() {
     uint32_t timeout;
     
     switch(engine_state) {
-    case ENGINE_STATE_STOPPED:
-        timeout = 1000;
-        break;
-    case ENGINE_STATE_ALARM_WAIT:
+    case STATE_ALARM_WAIT:
         timeout = portMAX_DELAY;
         break;
-    case ENGINE_STATE_PAUSE_I:
-        timeout = TIMEOUT_PAUSE_I;
+    case STATE_PRE_PREHEAT:
+        timeout = TIMEOUT_PRE_PREHEAT;
         break;
-    case ENGINE_STATE_PREHEAT:
+    case STATE_PREHEAT:
         timeout = TIMEOUT_WHEN_PREHEAT;
         break;
-    case ENGINE_STATE_PREHEAT_PAUSE:
+    case STATE_PREHEAT_PAUSE:
         timeout = TIMEOUT_PREHEAT_PAUSE;
         break;
-    case ENGINE_STATE_CRANKING:
-        timeout = TIMEOUT_WHEN_CRANKING;
+    case STATE_CRANKING:
+        timeout = MAX_CRANKING_TIME;
         break;
-    case ENGINE_STATE_PAUSE_II:
-        timeout = TIMEOUT_PAUSE_II;
+    case STATE_PAUSE_BETWEEN_PREHEATS:
+        timeout = PAUSE_BETWEEN_PREHEATS;
         break;
-    case ENGINE_STATE_RUNNING:
-        timeout = TIMEOUT_WHEN_RUNNING;
+    case STATE_PAUSE_BETWEEN_ATTEMPTS:
+        timeout = TIMEOUT_BETWEEN_ATTEMPTS;
         break;
+    default:
+        timeout = portMAX_DELAY;
     }
 
     return timeout;
@@ -184,7 +177,7 @@ static void OnStartCmd(EngineMessage_t *msg) {
 //
 //    1. Command received;
 //    2. Check if the engine is already running. If so, then break.
-    if(engine_state != ENGINE_STATE_STOPPED)
+    if(engine_state != STATE_STOPPED)
         return;
 //    4. Check for minimal voltage - if it is less than allowed then break.
     voltage = Measurement_GetVoltage();
@@ -194,10 +187,11 @@ static void OnStartCmd(EngineMessage_t *msg) {
     }
 //    5. Check for engine temp and calculate (Repetitions);
     repetitions = 3;
+    attempts = 0;
 //    2. Partially deactivate alarm (shock, ign, lock);
     Alarm_SendMsg(ALARM_ENGINE_START_REQ, 0, 0);
 
-    engine_state = ENGINE_STATE_ALARM_WAIT;
+    engine_state = STATE_ALARM_WAIT;
     return;
 }
 
@@ -222,83 +216,94 @@ static void OnWarmUp() {
     // 3. Turn on ignition;
     Inout_Set(OUT_IGN);
     // 7. Wait for plugs are turned on for 1 sec. If they are not turned on - go to 12.
-    engine_state = ENGINE_STATE_PAUSE_I;
+    engine_state = STATE_PRE_PREHEAT;
     // 8. Wait for plugs are turned off;
 }
 
 static void OnGlowPlugsTurnedOn() {
-    engine_state = ENGINE_STATE_PREHEAT;
+    preheat_start = xTaskGetTickCount();
+    engine_state = STATE_PREHEAT;
 }
 
 static void OnGlowPlugsTurnedOff() {
-    repetitions--;
+    uint32_t duration = xTaskGetTickCount() - preheat_start;
+    
+    if(duration > PREHEAT_DURATION_THRESHOLD)
+        repetitions--;
+    else
+        repetitions = 0;
     if(repetitions) {
         // 10. Turn off ignition;
         Inout_Clear(OUT_IGN);
         // 11. Wait for 1 sec.
-        engine_state = ENGINE_STATE_PAUSE_II;
+        engine_state = STATE_PAUSE_BETWEEN_PREHEATS;
     } else
         OnStartCranking();
 }
 
 static void OnStartCranking() {
-    cranking_start = xTaskGetTickCount();
     Inout_Set(OUT_START);
-    engine_state = ENGINE_STATE_CRANKING;
+    engine_state = STATE_CRANKING;
+}
+
+static void OnEngineStarted() {
+    if(engine_state == STATE_CRANKING) {
+        Inout_Clear(OUT_START);
+        engine_state = STATE_RUNNING;
+    }
+}
+
+static void OnCrankingTimeout() {
+    Inout_Clear(OUT_IGN | OUT_START);
+    attempts++;
+    if(attempts < MAX_ATTEMPTS_COUNT) {
+        engine_state = STATE_PAUSE_BETWEEN_ATTEMPTS;
+    } else {
+        engine_state = STATE_STOPPED;
+        // TODO: Notify the user about failure;
+    }
 }
 
 static void OnInStateChanged(EngineMessage_t *msg) {
-    uint32_t changes = msg->a1 ^ msg->a2;
-    uint32_t now = msg->a1;
-    
-    switch(engine_state) {
-    case ENGINE_STATE_PAUSE_I:
-        if((changes == IN_GLOW) && (now & IN_GLOW))
-            OnGlowPlugsTurnedOn();
-        break;
-    case ENGINE_STATE_PREHEAT:
-        if((changes == IN_GLOW) && !(now & IN_GLOW))
-            OnGlowPlugsTurnedOff();
-        break;
-    case ENGINE_STATE_PREHEAT_PAUSE:
-    case ENGINE_STATE_CRANKING:
-    case ENGINE_STATE_PAUSE_II:
-    case ENGINE_STATE_RUNNING:
-        break;
-    }
-    if((engine_state == ENGINE_STATE_PREHEAT) && (changes & IN_GLOW)) {
-        if(!(now & IN_GLOW))
-            engine_state = ENGINE_STATE_CRANKING;
-    }
-}
+    uint32_t on = GlowPlugsAreOn(msg);
+    uint32_t off = GlowPlugsAreOff(msg);
 
-static void CheckIfRunning() {
-    uint32_t time = xTaskGetTickCount();
-    uint32_t rpm = Measurement_GetRPM();
-    uint32_t voltage = Measurement_GetVoltage();
-    
-    if(time - cranking_start >= MAX_CRANKING_TIME) {
-        Inout_Clear(OUT_IGN | OUT_START);
-        vTaskDelay(10);
-        engine_state = ENGINE_STATE_STOPPED;
-    } else if((rpm >= 600) || (voltage >= 10500)) {
-        Inout_Clear(OUT_START);
-        vTaskDelay(10);
-        engine_state = ENGINE_STATE_RUNNING;
+    if(on) {
+        if(engine_state == STATE_PRE_PREHEAT) {
+            OnGlowPlugsTurnedOn();
+        } else
+            on = 0;
+    } else if(off && (engine_state == STATE_PREHEAT)) {
+        OnGlowPlugsTurnedOff();
     }
 }
 
 static void OnTimeout() {
     Inout_Clear(OUT_START | OUT_IGN);
     // TODO: Notify the user about timeout at the certain state.
-    engine_state = ENGINE_STATE_STOPPED;
+    engine_state = STATE_STOPPED;
 }
+
 FunctionalState Engine_GetState() {
-    return engine_state == ENGINE_STATE_STOPPED?DISABLE:ENABLE;
+    return engine_state == STATE_STOPPED?DISABLE:ENABLE;
 }
 
 static void OnStopCmd(EngineMessage_t *msg) {
-    Inout_Clear(OUT_IGN);
-    engine_state = ENGINE_STATE_STOPPED;
+    Inout_Clear(OUT_IGN | OUT_START);
+    engine_state = STATE_STOPPED;
     return;
+}
+
+static uint32_t GlowPlugsAreOn(EngineMessage_t *msg) {
+    uint32_t changes = msg->a1 ^ msg->a2;
+    uint32_t now = msg->a1;
+    
+    return ((changes == IN_GLOW) && (now & IN_GLOW))?1:0;
+}
+
+static uint32_t GlowPlugsAreOff(EngineMessage_t *msg) {
+    uint32_t changes = msg->a1 ^ msg->a2;
+    uint32_t now = msg->a1;
+    
+    return ((changes == IN_GLOW) && !(now & IN_GLOW))?1:0;
 }
